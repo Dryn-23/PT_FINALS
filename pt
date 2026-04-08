@@ -48,7 +48,7 @@ function Show-Menu {
     Write-Host "│ 14. 💿 Bootable Drive Creator                               │" -ForegroundColor Green
     Write-Host "│ 15. 💾 Storage Format                                       │" -ForegroundColor Green
     Write-Host "│ 16. 🔍 File Search (Find Files)                             │" -ForegroundColor Green  # NEW
-    Write-Host "│  0. ❌ Exit                                                 │" -ForegroundColor Red
+    Write-Host "│  0. ❌ Exit Application                                     │" -ForegroundColor Red
     Write-Host "└─────────────────────────────────────────────────────────────┘" -ForegroundColor Magenta
     Write-Host ""
 }
