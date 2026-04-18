@@ -5,12 +5,10 @@
 #  System Administration Tool for Linux (PowerShell Core)
 #  Features: System Info, Networking, Security, File Manager,
 #            Bootable Drive Creator, Storage Formatter,
-#            File Search, and Automated File Organizer (NEW)
+#            File Search, Automated File Organizer,
+#            Smart Cleaner (Cache/Temp/Trash/Duplicates) NEW
 # ============================================================
 
-# ============================================
-# CLI MODE - Accept feature number as argument
-# ============================================
 param(
     [int]$Feature       = 0,
     [string]$Path       = "",
@@ -21,7 +19,9 @@ param(
     [string]$Filesystem = "ext4",
     [string]$Label      = "",
     [string]$SearchPattern = "",
-    [switch]$SearchContent = $false
+    [switch]$SearchContent = $false,
+    [switch]$DryRun     = $false,
+    [switch]$SkipConfirm = $false
 )
 
 # ============================================
@@ -56,7 +56,8 @@ function Show-Menu {
     Write-Host "│ 14. 💿 Bootable Drive Creator                               │" -ForegroundColor Green
     Write-Host "│ 15. 💾 Storage Format                                       │" -ForegroundColor Green
     Write-Host "│ 16. 🔍 File Search (Find Files)                             │" -ForegroundColor Green
-    Write-Host "│ 17. 🗂️  Automated File Organizer (NEW)                      │" -ForegroundColor Cyan
+    Write-Host "│ 17. 🗂️  Automated File Organizer                            │" -ForegroundColor Cyan
+    Write-Host "│ 18. 🧽 Smart Cleaner (Cache/Temp/Trash/Duplicates)  NEW     │" -ForegroundColor Yellow
     Write-Host "│  0. ❌ Exit Application                                     │" -ForegroundColor Red
     Write-Host "└─────────────────────────────────────────────────────────────┘" -ForegroundColor Magenta
     Write-Host ""
@@ -70,13 +71,10 @@ function Show-SystemInfo {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    SYSTEM INFORMATION                         ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    Write-Host "▶ OPERATING SYSTEM:" -ForegroundColor Yellow
+    Write-Host "`n▶ OPERATING SYSTEM:" -ForegroundColor Yellow
     $osInfo = & lsb_release -d 2>$null | cut -f2
-    if (-not $osInfo) {
-        $osInfo = & cat /etc/os-release 2>$null | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '"'
-    }
+    if (-not $osInfo) { $osInfo = & cat /etc/os-release 2>$null | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '"' }
     Write-Host "   $osInfo" -ForegroundColor White
 
     Write-Host "`n▶ KERNEL:" -ForegroundColor Yellow
@@ -114,22 +112,17 @@ function Show-ProcessMonitor {
     Write-Host "║              TOP 15 PROCESSES BY CPU & MEMORY                  ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
     Write-Host ""
-
-    Write-Host ("{0,-8} {1,-25} {2,-10} {3,-10} {4,-15}" -f "PID", "PROCESS", "CPU%", "MEM%", "USER") -ForegroundColor Yellow
-    Write-Host ("{0,-8} {1,-25} {2,-10} {3,-10} {4,-15}" -f "---", "-------", "----", "----", "----") -ForegroundColor DarkGray
+    Write-Host ("{0,-8} {1,-25} {2,-10} {3,-10} {4,-15}" -f "PID","PROCESS","CPU%","MEM%","USER") -ForegroundColor Yellow
+    Write-Host ("{0,-8} {1,-25} {2,-10} {3,-10} {4,-15}" -f "---","-------","----","----","----") -ForegroundColor DarkGray
 
     $processes = & ps -eo pid,comm,%cpu,%mem,user --sort=-%cpu 2>$null | head -16
-    if (-not $processes) {
-        $processes = & ps aux 2>$null | sort -k3 -rn | head -16
-    }
-
+    if (-not $processes) { $processes = & ps aux 2>$null | sort -k3 -rn | head -16 }
     $processes | Select-Object -Skip 1 | ForEach-Object {
         $fields = $_ -split '\s+', 5
         if ($fields.Count -ge 5) {
-            Write-Host ("{0,-8} {1,-25} {2,-10} {3,-10} {4,-15}" -f $fields[0], $fields[1], $fields[2], $fields[3], $fields[4]) -ForegroundColor White
+            Write-Host ("{0,-8} {1,-25} {2,-10} {3,-10} {4,-15}" -f $fields[0],$fields[1],$fields[2],$fields[3],$fields[4]) -ForegroundColor White
         }
     }
-
     $totalProc = & ps -e 2>$null | Measure-Object -Line | Select-Object -ExpandProperty Lines
     Write-Host "`n📊 Total Running Processes: $totalProc" -ForegroundColor Green
 }
@@ -142,29 +135,26 @@ function Show-RealtimeMonitor {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                 REAL-TIME SYSTEM METRICS                       ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
     $cpuLine = & top -bn1 2>$null | grep "Cpu(s)"
     if (-not $cpuLine) { $cpuLine = & top -bn1 2>$null | grep "%Cpu" }
-
     if ($cpuLine -match "([0-9.]+)%") { $cpuLoad = $matches[1] } else { $cpuLoad = "0" }
 
-    Write-Host "▶ CPU USAGE:" -ForegroundColor Yellow
+    Write-Host "`n▶ CPU USAGE:" -ForegroundColor Yellow
     $cpuInt = [int][math]::Floor($cpuLoad)
-    if ($cpuInt -gt 80)      { Write-Host "   ⚠️  ${cpuLoad}% (HIGH USAGE!)" -ForegroundColor Red }
-    elseif ($cpuInt -gt 60)  { Write-Host "   ⚡ ${cpuLoad}% (Moderate)"    -ForegroundColor Yellow }
-    else                     { Write-Host "   ✅ ${cpuLoad}% (Normal)"       -ForegroundColor Green }
+    if ($cpuInt -gt 80)     { Write-Host "   ⚠️  ${cpuLoad}% (HIGH USAGE!)" -ForegroundColor Red }
+    elseif ($cpuInt -gt 60) { Write-Host "   ⚡ ${cpuLoad}% (Moderate)" -ForegroundColor Yellow }
+    else                    { Write-Host "   ✅ ${cpuLoad}% (Normal)" -ForegroundColor Green }
 
     $memInfo = & free 2>$null | grep Mem
     if ($memInfo) {
-        $memParts  = $memInfo -split '\s+'
-        $memTotal  = $memParts[1]
-        $memUsed   = $memParts[2]
-        $memUsage  = [math]::Round(($memUsed / $memTotal) * 100, 1)
+        $memParts = $memInfo -split '\s+'
+        $memTotal = $memParts[1]; $memUsed = $memParts[2]
+        $memUsage = [math]::Round(($memUsed / $memTotal) * 100, 1)
         Write-Host "`n▶ MEMORY USAGE:" -ForegroundColor Yellow
         if ($memUsage -gt 90)     { Write-Host "   ⚠️  $memUsage% (CRITICAL!)" -ForegroundColor Red }
-        elseif ($memUsage -gt 75) { Write-Host "   ⚡ $memUsage% (High)"       -ForegroundColor Yellow }
-        else                      { Write-Host "   ✅ $memUsage% (Normal)"      -ForegroundColor Green }
+        elseif ($memUsage -gt 75) { Write-Host "   ⚡ $memUsage% (High)" -ForegroundColor Yellow }
+        else                      { Write-Host "   ✅ $memUsage% (Normal)" -ForegroundColor Green }
     }
 
     $diskInfo = & df -h / 2>$null | tail -1
@@ -173,16 +163,13 @@ function Show-RealtimeMonitor {
         $diskUsage = $diskParts[4] -replace '%',''
         Write-Host "`n▶ DISK USAGE (/):" -ForegroundColor Yellow
         $diskInt = [int]$diskUsage
-        if ($diskInt -gt 85)     { Write-Host "   ⚠️  ${diskUsage}% (LOW SPACE!)"    -ForegroundColor Red }
-        elseif ($diskInt -gt 70) { Write-Host "   ⚡ ${diskUsage}% (Getting Full)"   -ForegroundColor Yellow }
-        else                     { Write-Host "   ✅ ${diskUsage}% (Good)"            -ForegroundColor Green }
+        if ($diskInt -gt 85)     { Write-Host "   ⚠️  ${diskUsage}% (LOW SPACE!)" -ForegroundColor Red }
+        elseif ($diskInt -gt 70) { Write-Host "   ⚡ ${diskUsage}% (Getting Full)" -ForegroundColor Yellow }
+        else                     { Write-Host "   ✅ ${diskUsage}% (Good)" -ForegroundColor Green }
     }
 
     $loadAvg = & uptime 2>$null
-    if ($loadAvg) {
-        Write-Host "`n▶ LOAD AVERAGE:" -ForegroundColor Yellow
-        Write-Host "   $loadAvg" -ForegroundColor White
-    }
+    if ($loadAvg) { Write-Host "`n▶ LOAD AVERAGE:" -ForegroundColor Yellow; Write-Host "   $loadAvg" -ForegroundColor White }
 }
 
 # ============================================
@@ -193,9 +180,8 @@ function Show-NetworkInfo {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                   NETWORK INTERFACES                           ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    Write-Host "▶ ACTIVE NETWORK INTERFACES:" -ForegroundColor Yellow
+    Write-Host "`n▶ ACTIVE NETWORK INTERFACES:" -ForegroundColor Yellow
     $interfaces = & ip -br addr show 2>$null
     if ($interfaces) {
         $interfaces | ForEach-Object {
@@ -220,7 +206,6 @@ function Show-Bandwidth {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                   BANDWIDTH STATISTICS                         ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
     $interfaces = & ip -br link 2>$null | grep -v LOOPBACK | awk '{print $1}'
     foreach ($iface in $interfaces) {
@@ -230,9 +215,8 @@ function Show-Bandwidth {
             $rx_gb = [math]::Round($rx_bytes / 1024 / 1024 / 1024, 2)
             $tx_gb = [math]::Round($tx_bytes / 1024 / 1024 / 1024, 2)
             Write-Host "▶ INTERFACE: $iface" -ForegroundColor Yellow
-            Write-Host "   📥 Received: $rx_gb GB"    -ForegroundColor White
+            Write-Host "   📥 Received: $rx_gb GB" -ForegroundColor White
             Write-Host "   📤 Transmitted: $tx_gb GB" -ForegroundColor White
-            Write-Host ""
         }
     }
 }
@@ -245,22 +229,15 @@ function Show-PortScan {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                   LISTENING PORTS                              ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    Write-Host "▶ OPEN PORTS (LISTENING):" -ForegroundColor Yellow
+    Write-Host "`n▶ OPEN PORTS (LISTENING):" -ForegroundColor Yellow
     $ports = & ss -tuln 2>$null | grep LISTEN | awk '{print $5}' | cut -d':' -f2 | sort -n | uniq
     $ports | ForEach-Object {
-        $port    = $_
+        $port = $_
         $service = switch ($port) {
-            "22"   { "SSH" }
-            "80"   { "HTTP" }
-            "443"  { "HTTPS" }
-            "3306" { "MySQL" }
-            "5432" { "PostgreSQL" }
-            "8080" { "HTTP-Alt" }
-            "53"   { "DNS" }
-            "25"   { "SMTP" }
-            "21"   { "FTP" }
+            "22"   { "SSH" } "80" { "HTTP" } "443" { "HTTPS" }
+            "3306" { "MySQL" } "5432" { "PostgreSQL" } "8080" { "HTTP-Alt" }
+            "53"   { "DNS" } "25" { "SMTP" } "21" { "FTP" }
             default { "Unknown" }
         }
         Write-Host "   🔌 Port $port - $service" -ForegroundColor Green
@@ -278,9 +255,8 @@ function Show-ServiceManager {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    SERVICE MANAGER                             ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    Write-Host "▶ RUNNING SERVICES (First 20):" -ForegroundColor Green
+    Write-Host "`n▶ RUNNING SERVICES (First 20):" -ForegroundColor Green
     $running = & systemctl list-units --type=service --state=running 2>$null | head -20
     if ($running) { $running | ForEach-Object { Write-Host "   ✅ $_" -ForegroundColor White } }
     else          { Write-Host "   ⚠️  No running services found or systemctl not available" -ForegroundColor Yellow }
@@ -299,9 +275,8 @@ function Show-DiskAnalysis {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                   DISK USAGE ANALYSIS                          ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    Write-Host "▶ LARGEST DIRECTORIES IN /HOME (Top 10):" -ForegroundColor Yellow
+    Write-Host "`n▶ LARGEST DIRECTORIES IN /HOME (Top 10):" -ForegroundColor Yellow
     $homeDirs = & du -h /home 2>$null | sort -rh | head -10
     if ($homeDirs) { $homeDirs | ForEach-Object { Write-Host "   📁 $_" -ForegroundColor White } }
     else           { Write-Host "   No home directories found or insufficient permissions" -ForegroundColor Gray }
@@ -324,24 +299,23 @@ function Show-CleanupTools {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    SYSTEM CLEANUP TOOLS                        ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
     $cacheSize = & du -sh /var/cache/apt/archives 2>$null | awk '{print $1}'
     if (-not $cacheSize) { $cacheSize = "0B" }
-    Write-Host "▶ PACKAGE CACHE:"         -ForegroundColor Yellow
-    Write-Host "   Size: $cacheSize"       -ForegroundColor White
+    Write-Host "`n▶ PACKAGE CACHE:" -ForegroundColor Yellow
+    Write-Host "   Size: $cacheSize" -ForegroundColor White
 
     $logCount = & find /var/log -name "*.log" -mtime +30 2>$null | wc -l
     Write-Host "`n▶ OLD LOG FILES (>30 days):" -ForegroundColor Yellow
-    Write-Host "   Files found: $logCount"     -ForegroundColor White
+    Write-Host "   Files found: $logCount" -ForegroundColor White
 
     $tmpSize = & du -sh /tmp 2>$null | awk '{print $1}'
-    Write-Host "`n▶ TEMPORARY FILES:"   -ForegroundColor Yellow
+    Write-Host "`n▶ TEMPORARY FILES:" -ForegroundColor Yellow
     Write-Host "   /tmp size: $tmpSize" -ForegroundColor White
 
     $trashSize = & du -sh ~/.local/share/Trash 2>$null | awk '{print $1}'
     Write-Host "`n▶ TRASH SIZE:" -ForegroundColor Yellow
-    Write-Host "   $trashSize"    -ForegroundColor White
+    Write-Host "   $trashSize" -ForegroundColor White
 }
 
 # ============================================
@@ -352,18 +326,13 @@ function Show-SecurityCheck {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    SECURITY CHECK                              ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    Write-Host "▶ SUSPICIOUS PROCESSES (High CPU > 80%):" -ForegroundColor Yellow
+    Write-Host "`n▶ SUSPICIOUS PROCESSES (High CPU > 80%):" -ForegroundColor Yellow
     $highCpu      = & ps -eo pid,comm,%cpu --sort=-%cpu 2>$null | head -10
     $foundHighCpu = $false
     $highCpu | ForEach-Object {
-        if ($_ -match "([8-9][0-9]|100)") {
-            Write-Host "   ⚠️  $_" -ForegroundColor Red
-            $foundHighCpu = $true
-        } elseif ($_ -notmatch "PID") {
-            Write-Host "   $_" -ForegroundColor White
-        }
+        if ($_ -match "([8-9][0-9]|100)") { Write-Host "   ⚠️  $_" -ForegroundColor Red; $foundHighCpu = $true }
+        elseif ($_ -notmatch "PID")       { Write-Host "   $_" -ForegroundColor White }
     }
     if (-not $foundHighCpu) { Write-Host "   ✅ No suspicious high-CPU processes found" -ForegroundColor Green }
 
@@ -379,9 +348,8 @@ function Show-PackageUpdates {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    PACKAGE UPDATES                             ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    Write-Host "▶ UPDATING PACKAGE LIST..." -ForegroundColor Yellow
+    Write-Host "`n▶ UPDATING PACKAGE LIST..." -ForegroundColor Yellow
     & sudo apt-get update 2>&1 | tail -5
 
     Write-Host "`n▶ AVAILABLE UPDATES:" -ForegroundColor Yellow
@@ -403,9 +371,8 @@ function Show-HardwareInfo {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                   HARDWARE INFORMATION                         ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    Write-Host "▶ CPU DETAILS:" -ForegroundColor Yellow
+    Write-Host "`n▶ CPU DETAILS:" -ForegroundColor Yellow
     & lscpu 2>$null | grep -E "^(Model name|Architecture|CPU\(s\)|Thread|Core|Socket|Virtualization)" |
         ForEach-Object { Write-Host "   $_" -ForegroundColor White }
 
@@ -423,20 +390,18 @@ function Show-HardwareInfo {
 }
 
 # ============================================
-# SECTION 13: FILE MANAGER — LIST DIRECTORY
+# SECTION 13: FILE MANAGER
 # ============================================
 
 function Get-FileList {
     param([string]$Directory)
-
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    FILE LIST                                  ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "`n📍 Directory: $Directory" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "📍 Directory: $Directory" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host ("{0,-10} {1,-35} {2,-15} {3,-20}" -f "TYPE", "NAME", "SIZE", "MODIFIED") -ForegroundColor Green
-    Write-Host ("{0,-10} {1,-35} {2,-15} {3,-20}" -f "----", "----", "----", "--------") -ForegroundColor DarkGray
+    Write-Host ("{0,-10} {1,-35} {2,-15} {3,-20}" -f "TYPE","NAME","SIZE","MODIFIED") -ForegroundColor Green
+    Write-Host ("{0,-10} {1,-35} {2,-15} {3,-20}" -f "----","----","----","--------") -ForegroundColor DarkGray
 
     $items = Get-ChildItem -Path $Directory -ErrorAction SilentlyContinue
     foreach ($item in $items) {
@@ -444,28 +409,17 @@ function Get-FileList {
         $size     = if ($item.PSIsContainer) { "-" } else { "{0:N2} KB" -f ($item.Length / 1KB) }
         $modified = $item.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
         $name     = if ($item.Name.Length -gt 32) { $item.Name.Substring(0,29) + "..." } else { $item.Name }
-        Write-Host ("{0,-10} {1,-35} {2,-15} {3,-20}" -f $type, $name, $size, $modified) -ForegroundColor White
+        Write-Host ("{0,-10} {1,-35} {2,-15} {3,-20}" -f $type,$name,$size,$modified) -ForegroundColor White
     }
-    Write-Host ""
-    Write-Host "📊 Total items: $($items.Count)" -ForegroundColor Green
+    Write-Host "`n📊 Total items: $($items.Count)" -ForegroundColor Green
 }
-
-# ============================================
-# SECTION 13 (EXTENDED): FILE MANAGER HELPERS
-# Copy, Move, Delete, Rename, New Folder
-# ============================================
 
 function Copy-ItemPS {
     param([string]$Source, [string]$Destination)
     Write-Host "`n📋 Copying..." -ForegroundColor Yellow
-    Write-Host "   From: $Source"  -ForegroundColor White
-    Write-Host "   To: $Destination" -ForegroundColor White
     try {
-        if (Test-Path $Source -PathType Container) {
-            Copy-Item -Path $Source -Destination $Destination -Recurse -Force
-        } else {
-            Copy-Item -Path $Source -Destination $Destination -Force
-        }
+        if (Test-Path $Source -PathType Container) { Copy-Item -Path $Source -Destination $Destination -Recurse -Force }
+        else { Copy-Item -Path $Source -Destination $Destination -Force }
         Write-Host "✅ Successfully copied!" -ForegroundColor Green
     } catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
 }
@@ -473,24 +427,16 @@ function Copy-ItemPS {
 function Move-ItemPS {
     param([string]$Source, [string]$Destination)
     Write-Host "`n✂️ Moving..." -ForegroundColor Yellow
-    Write-Host "   From: $Source"    -ForegroundColor White
-    Write-Host "   To: $Destination" -ForegroundColor White
-    try {
-        Move-Item -Path $Source -Destination $Destination -Force
-        Write-Host "✅ Successfully moved!" -ForegroundColor Green
-    } catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
+    try { Move-Item -Path $Source -Destination $Destination -Force; Write-Host "✅ Successfully moved!" -ForegroundColor Green }
+    catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
 }
 
 function Delete-ItemPS {
     param([string]$Path)
-    Write-Host "`n🗑️ Deleting..."  -ForegroundColor Yellow
-    Write-Host "   Path: $Path" -ForegroundColor White
+    Write-Host "`n🗑️ Deleting..." -ForegroundColor Yellow
     try {
-        if (Test-Path $Path -PathType Container) {
-            Remove-Item -Path $Path -Recurse -Force
-        } else {
-            Remove-Item -Path $Path -Force
-        }
+        if (Test-Path $Path -PathType Container) { Remove-Item -Path $Path -Recurse -Force }
+        else { Remove-Item -Path $Path -Force }
         Write-Host "✅ Successfully deleted!" -ForegroundColor Green
     } catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
 }
@@ -498,22 +444,15 @@ function Delete-ItemPS {
 function Rename-ItemPS {
     param([string]$Path, [string]$NewName)
     Write-Host "`n✏️ Renaming..." -ForegroundColor Yellow
-    Write-Host "   From: $(Split-Path $Path -Leaf)" -ForegroundColor White
-    Write-Host "   To: $NewName"                    -ForegroundColor White
-    try {
-        Rename-Item -Path $Path -NewName $NewName -Force
-        Write-Host "✅ Successfully renamed!" -ForegroundColor Green
-    } catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
+    try { Rename-Item -Path $Path -NewName $NewName -Force; Write-Host "✅ Successfully renamed!" -ForegroundColor Green }
+    catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
 }
 
 function New-FolderPS {
     param([string]$Path)
     Write-Host "`n📁 Creating folder..." -ForegroundColor Yellow
-    Write-Host "   Path: $Path"          -ForegroundColor White
-    try {
-        New-Item -Path $Path -ItemType Directory -Force -ErrorAction Stop
-        Write-Host "✅ Folder created successfully!" -ForegroundColor Green
-    } catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
+    try { New-Item -Path $Path -ItemType Directory -Force -ErrorAction Stop; Write-Host "✅ Folder created successfully!" -ForegroundColor Green }
+    catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
 }
 
 # ============================================
@@ -524,49 +463,32 @@ function Get-USBDrives {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    USB DRIVES                                 ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
     $drives = Get-Disk | Where-Object { $_.BusType -eq "USB" -or $_.Size -lt 64GB }
     if ($drives) {
         foreach ($drive in $drives) {
-            $size         = [math]::Round($drive.Size / 1GB, 2)
+            $size = [math]::Round($drive.Size / 1GB, 2)
             $friendlyName = if ($drive.FriendlyName) { $drive.FriendlyName } else { "USB Drive" }
             Write-Host "💾 Disk $($drive.Number): $friendlyName - ${size}GB" -ForegroundColor Green
-            Write-Host "   Device: /dev/sd$(($drive.Number + 97) -as [char])"  -ForegroundColor White
+            Write-Host "   Device: /dev/sd$(($drive.Number + 97) -as [char])" -ForegroundColor White
         }
     } else {
-        Write-Host "⚠️ No USB drives detected"              -ForegroundColor Yellow
-        Write-Host "   Make sure a USB drive is connected" -ForegroundColor White
+        Write-Host "⚠️ No USB drives detected" -ForegroundColor Yellow
     }
 }
 
 function Create-BootableDrive {
     param([string]$Device, [string]$IsoPath)
-
     Write-Host "`n⚠️  WARNING: This will DESTROY ALL DATA on $Device!" -ForegroundColor Red
-    Write-Host "📀 Creating bootable drive..."    -ForegroundColor Yellow
-    Write-Host "   ISO File: $IsoPath"            -ForegroundColor White
-    Write-Host "   Target Device: $Device"        -ForegroundColor White
-    Write-Host ""
-
-    if (-not (Test-Path $Device))  { Write-Host "❌ Error: Device $Device does not exist!"  -ForegroundColor Red; return }
+    if (-not (Test-Path $Device))  { Write-Host "❌ Error: Device $Device does not exist!"   -ForegroundColor Red; return }
     if (-not (Test-Path $IsoPath)) { Write-Host "❌ Error: ISO file $IsoPath does not exist!" -ForegroundColor Red; return }
-
     try {
-        Write-Host "🔌 Unmounting any mounted partitions..." -ForegroundColor Yellow
         $deviceBase = $Device -replace '[0-9]+$', ''
         sudo umount ${deviceBase}* 2>$null
-
-        Write-Host "💿 Writing ISO to device (this may take several minutes)..." -ForegroundColor Yellow
         $process = Start-Process -NoNewWindow -Wait -PassThru -FilePath "sudo" `
             -ArgumentList "dd if=`"$IsoPath`" of=`"$Device`" bs=4M status=progress"
-
-        if ($process.ExitCode -eq 0) {
-            Write-Host "`n✅ Bootable USB created successfully!" -ForegroundColor Green
-            Write-Host "💿 Device $Device is now bootable"      -ForegroundColor Green
-        } else {
-            Write-Host "`n❌ Error creating bootable drive" -ForegroundColor Red
-        }
+        if ($process.ExitCode -eq 0) { Write-Host "`n✅ Bootable USB created successfully!" -ForegroundColor Green }
+        else                         { Write-Host "`n❌ Error creating bootable drive" -ForegroundColor Red }
     } catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
 }
 
@@ -578,7 +500,6 @@ function Get-StorageDevices {
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    STORAGE DEVICES                            ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
     $disks = Get-Disk
     foreach ($disk in $disks) {
@@ -587,58 +508,29 @@ function Get-StorageDevices {
         $devicePath = "/dev/sd$(($disk.Number + 97) -as [char])"
         Write-Host "💾 Disk $($disk.Number): $($disk.FriendlyName)" -ForegroundColor Green
         Write-Host "   Size: ${size}GB | Type: $type | Device: $devicePath" -ForegroundColor White
-
         $partitions = Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue
         foreach ($part in $partitions) {
             $partSize    = [math]::Round($part.Size / 1GB, 2)
             $driveLetter = if ($part.DriveLetter) { "$($part.DriveLetter):" } else { "No letter" }
             Write-Host "   └─ Partition $($part.PartitionNumber): $driveLetter - ${partSize}GB" -ForegroundColor Gray
         }
-        Write-Host ""
     }
 }
 
 function Format-Storage {
     param([string]$Device, [string]$Filesystem, [string]$Label)
-
     Write-Host "`n⚠️  WARNING: This will DESTROY ALL DATA on $Device!" -ForegroundColor Red
-    Write-Host "💾 Formatting device..."   -ForegroundColor Yellow
-    Write-Host "   Device: $Device"        -ForegroundColor White
-    Write-Host "   Filesystem: $Filesystem" -ForegroundColor White
-    if ($Label) { Write-Host "   Label: $Label" -ForegroundColor White }
-    Write-Host ""
-
     if (-not (Test-Path $Device)) { Write-Host "❌ Error: Device $Device does not exist!" -ForegroundColor Red; return }
-
     try {
-        Write-Host "🔌 Unmounting device if mounted..." -ForegroundColor Yellow
         sudo umount $Device 2>$null
-
-        Write-Host "💾 Formatting as $Filesystem..." -ForegroundColor Yellow
         switch ($Filesystem) {
-            "ext4"  {
-                if ($Label) { sudo mkfs.ext4 -F -L $Label $Device }
-                else        { sudo mkfs.ext4 -F $Device }
-            }
-            "ntfs"  {
-                if ($Label) { sudo mkfs.ntfs -F -L $Label $Device }
-                else        { sudo mkfs.ntfs -F $Device }
-            }
-            "fat32" {
-                if ($Label) { sudo mkfs.fat -F 32 -n $Label $Device }
-                else        { sudo mkfs.fat -F 32 $Device }
-            }
-            "exfat" {
-                if ($Label) { sudo mkfs.exfat -n $Label $Device }
-                else        { sudo mkfs.exfat $Device }
-            }
-            default {
-                Write-Host "❌ Unsupported filesystem: $Filesystem" -ForegroundColor Red
-                return
-            }
+            "ext4"  { if ($Label) { sudo mkfs.ext4 -F -L $Label $Device } else { sudo mkfs.ext4 -F $Device } }
+            "ntfs"  { if ($Label) { sudo mkfs.ntfs -F -L $Label $Device } else { sudo mkfs.ntfs -F $Device } }
+            "fat32" { if ($Label) { sudo mkfs.fat -F 32 -n $Label $Device } else { sudo mkfs.fat -F 32 $Device } }
+            "exfat" { if ($Label) { sudo mkfs.exfat -n $Label $Device } else { sudo mkfs.exfat $Device } }
+            default { Write-Host "❌ Unsupported filesystem: $Filesystem" -ForegroundColor Red; return }
         }
         Write-Host "✅ Device formatted successfully as $Filesystem!" -ForegroundColor Green
-        if ($Label) { Write-Host "🏷️  Volume label set to: $Label" -ForegroundColor Green }
     } catch { Write-Host "❌ Error: $_" -ForegroundColor Red }
 }
 
@@ -647,277 +539,300 @@ function Format-Storage {
 # ============================================
 
 function Find-FileByName {
-    param(
-        [string]$SearchPattern,
-        [string]$StartPath = "."
-    )
-
+    param([string]$SearchPattern, [string]$StartPath = ".")
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                    FILE SEARCH RESULTS                        ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "🔍 Searching for files matching: *$SearchPattern*" -ForegroundColor Yellow
-    Write-Host "📍 Starting from: $StartPath"                      -ForegroundColor Yellow
-    Write-Host ""
+    Write-Host "`n🔍 Searching for: *$SearchPattern*" -ForegroundColor Yellow
+    Write-Host "📍 Starting from: $StartPath" -ForegroundColor Yellow
 
     try {
         $foundFiles = Get-ChildItem -Path $StartPath -Filter "*$SearchPattern*" -Recurse -File -ErrorAction SilentlyContinue
-
-        if ($foundFiles.Count -eq 0) {
-            Write-Host "❌ No files found matching the pattern" -ForegroundColor Red
-        } else {
-            Write-Host ("{0,-60} {1,-15} {2}" -f "FULL PATH", "SIZE", "MODIFIED") -ForegroundColor Green
-            Write-Host ("{0,-60} {1,-15} {2}" -f "─────────", "────", "────────") -ForegroundColor DarkGray
-
+        if ($foundFiles.Count -eq 0) { Write-Host "`n❌ No files found matching the pattern" -ForegroundColor Red }
+        else {
+            Write-Host ("{0,-60} {1,-15} {2}" -f "FULL PATH","SIZE","MODIFIED") -ForegroundColor Green
             $counter = 0
             foreach ($file in $foundFiles) {
-                $pathDisplay = if ($file.FullName.Length -gt 57) {
-                    "..." + $file.FullName.Substring($file.FullName.Length - 57)
-                } else { $file.FullName }
+                $pathDisplay = if ($file.FullName.Length -gt 57) { "..." + $file.FullName.Substring($file.FullName.Length - 57) } else { $file.FullName }
                 $sizeDisplay = "{0:N2} KB" -f ($file.Length / 1KB)
                 $modified    = $file.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
-                Write-Host ("{0,-60} {1,-15} {2}" -f $pathDisplay, $sizeDisplay, $modified) -ForegroundColor White
+                Write-Host ("{0,-60} {1,-15} {2}" -f $pathDisplay,$sizeDisplay,$modified) -ForegroundColor White
                 $counter++
-                if ($counter -ge 50) {
-                    Write-Host "`n... (showing first 50 results of $($foundFiles.Count) total)" -ForegroundColor Yellow
-                    break
-                }
+                if ($counter -ge 50) { Write-Host "`n... (showing first 50 of $($foundFiles.Count) total)" -ForegroundColor Yellow; break }
             }
-            Write-Host ""
-            Write-Host "📊 Total files found: $($foundFiles.Count)" -ForegroundColor Green
+            Write-Host "`n📊 Total files found: $($foundFiles.Count)" -ForegroundColor Green
         }
     } catch { Write-Host "❌ Error searching files: $_" -ForegroundColor Red }
 }
 
-function Search-FilesPS {
-    param([string]$Directory, [string]$Pattern, [switch]$SearchContent)
-
-    Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║                    SEARCH RESULTS                             ║" -ForegroundColor Cyan
-    Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "🔍 Searching for: $Pattern" -ForegroundColor Yellow
-    Write-Host "📍 Directory: $Directory"   -ForegroundColor Yellow
-    if ($SearchContent) { Write-Host "📄 Searching inside file content..." -ForegroundColor Cyan }
-    Write-Host ""
-
-    $found = 0
-    if ($SearchContent) {
-        $results = Get-ChildItem -Path $Directory -Recurse -File -ErrorAction SilentlyContinue |
-            Select-String -Pattern $Pattern -SimpleMatch
-        foreach ($result in $results) {
-            Write-Host "📄 $($result.Path)" -ForegroundColor White
-            Write-Host "   ↳ Line $($result.LineNumber): $($result.Line.Trim().Substring(0, [Math]::Min(80, $result.Line.Trim().Length)))" -ForegroundColor Gray
-            $found++
-            if ($found -ge 50) { Write-Host "   ... (showing first 50 results)" -ForegroundColor Yellow; break }
-        }
-    } else {
-        $results = Get-ChildItem -Path $Directory -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like "*$Pattern*" }
-        foreach ($item in $results) {
-            $type = if ($item.PSIsContainer) { "📁" } else { "📄" }
-            $size = if ($item.PSIsContainer) { "-" } else { "{0:N2} KB" -f ($item.Length / 1KB) }
-            Write-Host "$type $($item.FullName) [$size]" -ForegroundColor White
-            $found++
-            if ($found -ge 100) { Write-Host "   ... (showing first 100 results)" -ForegroundColor Yellow; break }
-        }
-    }
-    Write-Host ""
-    Write-Host "📊 Found $found matches" -ForegroundColor Green
-}
-
-# ================================================================
-# SECTION 17: AUTOMATED FILE ORGANIZER (NEW - Performance Task)
-# ================================================================
-#
-# Purpose : Sorts all files in a given directory into categorized
-#           subfolders based on their file extension.
-#
-# How it works:
-#   1. Defines the five destination folder names as variables.
-#   2. Creates those folders with New-Item (equivalent of mkdir -p).
-#   3. Loops through every item in the target directory.
-#   4. Skips subfolders and the script file itself.
-#   5. Extracts each file's extension and uses a switch (case)
-#      statement to decide which folder it belongs in.
-#   6. Moves the file with Move-Item and prints a status message.
-#   7. Prints a summary report when finished.
-# ================================================================
+# ============================================
+# SECTION 17: AUTOMATED FILE ORGANIZER
+# ============================================
 
 function Invoke-FileOrganizer {
-    # Accept the directory to organize as a parameter.
-    # Defaults to the current directory (".") if none is given.
-    param(
-        [string]$TargetDirectory = "."
-    )
-
+    param([string]$TargetDirectory = ".")
     Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
     Write-Host "║                  AUTOMATED FILE ORGANIZER                     ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
 
-    # ── STEP 1: Resolve the full path ──────────────────────────────
-    # Resolve-Path turns "." or a relative path into an absolute one,
-    # so all operations are unambiguous.
     $TargetDirectory = (Resolve-Path $TargetDirectory -ErrorAction SilentlyContinue).Path
-    if (-not $TargetDirectory) {
-        Write-Host "❌ Directory not found." -ForegroundColor Red
-        return
+    if (-not $TargetDirectory) { Write-Host "❌ Directory not found." -ForegroundColor Red; return }
+    Write-Host "`n📍 Organizing: $TargetDirectory" -ForegroundColor Yellow
+
+    $ImagesDir    = "Images"; $DocumentsDir = "Documents"; $VideosDir = "Videos"
+    $MusicDir     = "Music";  $ArchivesDir  = "Archives"
+
+    foreach ($folder in @($ImagesDir,$DocumentsDir,$VideosDir,$MusicDir,$ArchivesDir)) {
+        New-Item -Path (Join-Path $TargetDirectory $folder) -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
     }
 
-    Write-Host "📍 Organizing: $TargetDirectory" -ForegroundColor Yellow
-    Write-Host ""
-
-    # ── STEP 2: Define destination folder names ─────────────────────
-    # Using variables makes it easy to rename folders in one place.
-    $ImagesDir    = "Images"
-    $DocumentsDir = "Documents"
-    $VideosDir    = "Videos"
-    $MusicDir     = "Music"
-    $ArchivesDir  = "Archives"
-
-    # ── STEP 3: Create folders if they do not already exist ─────────
-    # New-Item -Force is the PowerShell equivalent of bash's mkdir -p.
-    # If the folder already exists, -Force suppresses the error.
-    Write-Host "[*] Setting up destination folders..." -ForegroundColor DarkGray
-    foreach ($folder in @($ImagesDir, $DocumentsDir, $VideosDir, $MusicDir, $ArchivesDir)) {
-        $fullPath = Join-Path $TargetDirectory $folder
-        New-Item -Path $fullPath -ItemType Directory -Force -ErrorAction SilentlyContinue | Out-Null
-    }
-    Write-Host "[✔] Folders ready." -ForegroundColor Green
-    Write-Host ""
-    Write-Host "[*] Scanning for files..." -ForegroundColor DarkGray
-    Write-Host ""
-
-    # ── STEP 4: Counters for the summary report ─────────────────────
-    $movedCount   = 0
-    $skippedCount = 0
-
-    # ── STEP 5: Loop through every item in the target directory ─────
-    # We use Get-ChildItem to enumerate items safely. PowerShell
-    # handles filenames with spaces automatically — no extra quoting
-    # needed here because we pass objects, not raw shell strings.
+    $movedCount = 0; $skippedCount = 0
     $allItems = Get-ChildItem -Path $TargetDirectory -ErrorAction SilentlyContinue
 
     foreach ($item in $allItems) {
-
-        # ── SKIP DIRECTORIES ───────────────────────────────────────
-        # PSIsContainer is true for folders. We must skip them so we
-        # don't accidentally move Images/ into Documents/, etc.
-        if ($item.PSIsContainer) {
-            continue
-        }
-
-        # ── SKIP THE SCRIPT ITSELF ─────────────────────────────────
-        # We don't want the organizer to try to move itself.
-        if ($item.Name -eq (Split-Path $PSCommandPath -Leaf)) {
-            Write-Host "[SKIP]     '$($item.Name)' — this is the organizer script." -ForegroundColor DarkGray
-            $skippedCount++
-            continue
-        }
-
-        # ── EXTRACT FILE EXTENSION ─────────────────────────────────
-        # .Extension gives the extension including the dot (e.g. ".jpg").
-        # We remove the dot and convert to lowercase so ".JPG" = ".jpg".
+        if ($item.PSIsContainer) { continue }
+        if ($item.Name -eq (Split-Path $PSCommandPath -Leaf)) { $skippedCount++; continue }
         $ext = $item.Extension.TrimStart('.').ToLower()
+        if ([string]::IsNullOrWhiteSpace($ext)) { Write-Host "[SKIP]     '$($item.Name)'" -ForegroundColor DarkGray; $skippedCount++; continue }
 
-        # If the file has no extension, skip it.
-        if ([string]::IsNullOrWhiteSpace($ext)) {
-            Write-Host "[SKIP]     '$($item.Name)' — no extension, skipping." -ForegroundColor DarkGray
-            $skippedCount++
-            continue
-        }
-
-        # ── CASE (SWITCH) STATEMENT ────────────────────────────────
-        # This is the PowerShell equivalent of bash's `case` statement.
-        # It checks the extension against each category and sets the
-        # destination folder accordingly.
         $destinationFolder = switch ($ext) {
-
-            # IMAGE FORMATS
-            { $_ -in @("jpg","jpeg","png","gif","svg","webp") } {
-                Write-Host "[IMAGE]    Moving '$($item.Name)' → $ImagesDir/" -ForegroundColor Cyan
-                $ImagesDir; break
-            }
-
-            # DOCUMENT FORMATS
-            { $_ -in @("pdf","doc","docx","txt","ppt","pptx","xls","xlsx") } {
-                Write-Host "[DOCUMENT] Moving '$($item.Name)' → $DocumentsDir/" -ForegroundColor Blue
-                $DocumentsDir; break
-            }
-
-            # VIDEO FORMATS
-            { $_ -in @("mp4","mkv","mov","avi") } {
-                Write-Host "[VIDEO]    Moving '$($item.Name)' → $VideosDir/" -ForegroundColor Magenta
-                $VideosDir; break
-            }
-
-            # MUSIC / AUDIO FORMATS
-            { $_ -in @("mp3","wav","flac") } {
-                Write-Host "[MUSIC]    Moving '$($item.Name)' → $MusicDir/" -ForegroundColor Green
-                $MusicDir; break
-            }
-
-            # ARCHIVE / COMPRESSED FORMATS
-            { $_ -in @("zip","rar","tar","gz") } {
-                Write-Host "[ARCHIVE]  Moving '$($item.Name)' → $ArchivesDir/" -ForegroundColor Yellow
-                $ArchivesDir; break
-            }
-
-            # UNKNOWN / UNRECOGNIZED EXTENSION
-            default {
-                Write-Host "[SKIP]     '$($item.Name)' — unknown type (.$ext), skipping." -ForegroundColor DarkGray
-                $skippedCount++
-                $null  # null signals we should not move this file
-            }
+            { $_ -in @("jpg","jpeg","png","gif","svg","webp") }                          { Write-Host "[IMAGE]    '$($item.Name)'" -ForegroundColor Cyan;    $ImagesDir;    break }
+            { $_ -in @("pdf","doc","docx","txt","ppt","pptx","xls","xlsx") }             { Write-Host "[DOCUMENT] '$($item.Name)'" -ForegroundColor Blue;    $DocumentsDir; break }
+            { $_ -in @("mp4","mkv","mov","avi") }                                        { Write-Host "[VIDEO]    '$($item.Name)'" -ForegroundColor Magenta; $VideosDir;    break }
+            { $_ -in @("mp3","wav","flac") }                                             { Write-Host "[MUSIC]    '$($item.Name)'" -ForegroundColor Green;   $MusicDir;     break }
+            { $_ -in @("zip","rar","tar","gz") }                                         { Write-Host "[ARCHIVE]  '$($item.Name)'" -ForegroundColor Yellow;  $ArchivesDir;  break }
+            default                                                                      { Write-Host "[SKIP]     '$($item.Name)' — unknown (.$ext)" -ForegroundColor DarkGray; $skippedCount++; $null }
         }
 
-        # ── MOVE THE FILE ──────────────────────────────────────────
-        # Only move if a valid destination was matched above.
-        # Move-Item handles filenames with spaces safely because we
-        # pass the full FileInfo object path, not a raw string.
         if ($destinationFolder) {
-            $destPath = Join-Path $TargetDirectory $destinationFolder
-            try {
-                Move-Item -Path $item.FullName -Destination $destPath -Force -ErrorAction Stop
-                $movedCount++
-            } catch {
-                Write-Host "   ❌ Failed to move '$($item.Name)': $_" -ForegroundColor Red
-                $skippedCount++
+            try { Move-Item -Path $item.FullName -Destination (Join-Path $TargetDirectory $destinationFolder) -Force -ErrorAction Stop; $movedCount++ }
+            catch { Write-Host "   ❌ Failed: $_" -ForegroundColor Red; $skippedCount++ }
+        }
+    }
+
+    Write-Host "`n✅ Done! Moved: $movedCount  Skipped: $skippedCount" -ForegroundColor Green
+}
+
+# ================================================================
+# SECTION 18: SMART CLEANER — Cache / Temp / Trash / Duplicates
+# ================================================================
+#
+# Sub-features:
+#   A) SCAN   - lists what would be cleaned and total size (safe, no deletion)
+#   B) CLEAN  - deletes cache, temp, trash files after confirmation
+#   C) DUPES  - finds duplicate files by MD5 hash, lists them
+#   D) DEL_DUPES - deletes duplicates keeping one copy per group
+#
+# Parameters used:
+#   -DryRun      → scan only, never delete
+#   -SkipConfirm → skip the interactive "are you sure?" prompt (used by GUI)
+#   -Path        → directory to scan for duplicates (defaults to $HOME)
+# ================================================================
+
+function Get-HumanSize {
+    param([long]$Bytes)
+    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
+    if ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
+    if ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
+    return "$Bytes B"
+}
+
+function Invoke-SmartCleaner {
+    param(
+        [string]$Mode = "SCAN",   # SCAN | CLEAN | DUPES | DEL_DUPES
+        [string]$ScanPath = "",
+        [switch]$DryRun,
+        [switch]$SkipConfirm
+    )
+
+    Write-Host "`n╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║                   🧽 SMART CLEANER                            ║" -ForegroundColor Cyan
+    Write-Host "╚══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+
+    # ── CLEAN MODE (cache / temp / trash) ──────────────────────────
+    if ($Mode -eq "SCAN" -or $Mode -eq "CLEAN") {
+
+        # Define target paths to scan/clean
+        $targets = @(
+            @{ Label="APT Package Cache";  Path="/var/cache/apt/archives";          Pattern="*.deb" }
+            @{ Label="APT Lists Cache";    Path="/var/lib/apt/lists";               Pattern="*" }
+            @{ Label="Temp Files (/tmp)";  Path="/tmp";                             Pattern="*" }
+            @{ Label="User Cache";         Path="$HOME/.cache";                     Pattern="*" }
+            @{ Label="Thumbnail Cache";    Path="$HOME/.cache/thumbnails";          Pattern="*" }
+            @{ Label="Log Files (old)";    Path="/var/log";                         Pattern="*.gz" }
+            @{ Label="Systemd Journals";   Path="/var/log/journal";                 Pattern="*" }
+            @{ Label="Trash Files";        Path="$HOME/.local/share/Trash/files";   Pattern="*" }
+            @{ Label="Trash Info";         Path="$HOME/.local/share/Trash/info";    Pattern="*.trashinfo" }
+        )
+
+        $grandTotal  = [long]0
+        $targetSizes = @()
+
+        Write-Host "`n▶ SCANNING FOR CLEANABLE FILES..." -ForegroundColor Yellow
+        Write-Host ("{0,-30} {1,-12} {2,-8}" -f "TARGET","SIZE","FILES") -ForegroundColor Cyan
+        Write-Host ("{0,-30} {1,-12} {2,-8}" -f "──────","────","─────") -ForegroundColor DarkGray
+
+        foreach ($t in $targets) {
+            if (Test-Path $t.Path) {
+                $files = Get-ChildItem -Path $t.Path -Filter $t.Pattern -Recurse -File -ErrorAction SilentlyContinue
+                $sz    = ($files | Measure-Object -Property Length -Sum).Sum
+                if (-not $sz) { $sz = 0 }
+                $grandTotal += $sz
+                $humanSz = Get-HumanSize -Bytes $sz
+                Write-Host ("{0,-30} {1,-12} {2,-8}" -f $t.Label, $humanSz, $files.Count) -ForegroundColor White
+                $targetSizes += @{ Label=$t.Label; Path=$t.Path; Pattern=$t.Pattern; Size=$sz; Count=$files.Count }
+            } else {
+                Write-Host ("{0,-30} {1,-12} {2,-8}" -f $t.Label, "N/A", "—") -ForegroundColor DarkGray
             }
         }
-    }
 
-    # ── STEP 6: SUMMARY REPORT ─────────────────────────────────────
-    # Count how many files ended up in each folder for the report.
-    Write-Host ""
-    Write-Host "──────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
-    Write-Host "   ✅ DONE! Organization Complete." -ForegroundColor Green
-    Write-Host "──────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
-    Write-Host "   Files moved    : $movedCount"   -ForegroundColor White
-    Write-Host "   Files skipped  : $skippedCount" -ForegroundColor White
-    Write-Host ""
-    Write-Host "   Folder contents after organizing:" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "   TOTAL RECOVERABLE: $(Get-HumanSize -Bytes $grandTotal)" -ForegroundColor Yellow
 
-    foreach ($folder in @($ImagesDir, $DocumentsDir, $VideosDir, $MusicDir, $ArchivesDir)) {
-        $fullPath = Join-Path $TargetDirectory $folder
-        $count    = (Get-ChildItem -Path $fullPath -File -ErrorAction SilentlyContinue).Count
-        $icon     = switch ($folder) {
-            $ImagesDir    { "🖼️ " }
-            $DocumentsDir { "📄" }
-            $VideosDir    { "🎬" }
-            $MusicDir     { "🎵" }
-            $ArchivesDir  { "📦" }
+        if ($Mode -eq "SCAN" -or $DryRun) {
+            Write-Host "`n   ℹ️  Scan complete. Run with Mode=CLEAN to actually delete." -ForegroundColor Cyan
+            return
         }
-        Write-Host ("   {0} {1,-12}: {2} file(s)" -f $icon, $folder, $count) -ForegroundColor White
+
+        # ── Confirmation ────────────────────────────────────────────
+        if (-not $SkipConfirm) {
+            Write-Host ""
+            Write-Host "   ⚠️  Are you sure you want to delete $(Get-HumanSize -Bytes $grandTotal) of cached/temp/trash files?" -ForegroundColor Red
+            Write-Host "   This CANNOT be undone. Type YES to confirm: " -ForegroundColor Yellow -NoNewline
+            $answer = Read-Host
+            if ($answer -ne "YES") { Write-Host "`n   ❌ Cancelled. No files were deleted." -ForegroundColor Gray; return }
+        }
+
+        # ── Delete ──────────────────────────────────────────────────
+        Write-Host ""
+        $deletedBytes = [long]0
+        $deletedCount = 0
+
+        foreach ($t in $targetSizes) {
+            if ($t.Size -eq 0) { continue }
+            Write-Host "   🗑️  Cleaning: $($t.Label)..." -ForegroundColor Yellow
+            try {
+                if ($t.Path -like "/var/*") {
+                    # Needs sudo for system paths
+                    $result = & sudo find $t.Path -maxdepth 3 -type f -name $t.Pattern -delete 2>$null
+                } else {
+                    $files = Get-ChildItem -Path $t.Path -Filter $t.Pattern -Recurse -File -ErrorAction SilentlyContinue
+                    foreach ($f in $files) {
+                        try { Remove-Item -Path $f.FullName -Force -ErrorAction Stop; $deletedBytes += $f.Length; $deletedCount++ }
+                        catch { }
+                    }
+                }
+                Write-Host "   ✅ Done" -ForegroundColor Green
+            } catch {
+                Write-Host "   ⚠️  Partial error: $_" -ForegroundColor Yellow
+            }
+        }
+
+        Write-Host ""
+        Write-Host "──────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+        Write-Host "   ✅ CLEAN COMPLETE" -ForegroundColor Green
+        Write-Host "   Files deleted : $deletedCount" -ForegroundColor White
+        Write-Host "   Space freed   : $(Get-HumanSize -Bytes $deletedBytes)" -ForegroundColor White
+        Write-Host "──────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+        return
     }
-    Write-Host "──────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+
+    # ── DUPLICATE FINDER ────────────────────────────────────────────
+    if ($Mode -eq "DUPES" -or $Mode -eq "DEL_DUPES") {
+
+        $searchDir = if ($ScanPath -and (Test-Path $ScanPath)) { $ScanPath } else { $HOME }
+        Write-Host "`n▶ SCANNING FOR DUPLICATES IN: $searchDir" -ForegroundColor Yellow
+        Write-Host "   (Comparing by MD5 hash — this may take a moment...)" -ForegroundColor DarkGray
+
+        # Group files by size first (fast pre-filter), then hash
+        $hashGroups = @{}
+        $allFiles = Get-ChildItem -Path $searchDir -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Length -gt 1KB }  # skip tiny files
+
+        $scanned = 0
+        foreach ($f in $allFiles) {
+            try {
+                $hash = (Get-FileHash -Path $f.FullName -Algorithm MD5 -ErrorAction Stop).Hash
+                if (-not $hashGroups.ContainsKey($hash)) { $hashGroups[$hash] = @() }
+                $hashGroups[$hash] += $f
+            } catch { }
+            $scanned++
+        }
+
+        $dupeGroups = $hashGroups.GetEnumerator() | Where-Object { $_.Value.Count -gt 1 }
+        $dupeList   = @($dupeGroups)
+
+        if ($dupeList.Count -eq 0) {
+            Write-Host "`n   ✅ No duplicate files found in $searchDir" -ForegroundColor Green
+            return
+        }
+
+        $totalWaste  = [long]0
+        $totalDupes  = 0
+
+        Write-Host "`n   Found $($dupeList.Count) duplicate group(s):`n" -ForegroundColor Yellow
+        Write-Host ("{0,-60} {1,-12} {2}" -f "FILE","SIZE","HASH") -ForegroundColor Cyan
+        Write-Host ("{0,-60} {1,-12} {2}" -f "────","────","────") -ForegroundColor DarkGray
+
+        foreach ($grp in $dupeList) {
+            $files = $grp.Value | Sort-Object FullName
+            Write-Host "  ┌─ DUPLICATE GROUP ($($files.Count) copies) ─────────────────────────" -ForegroundColor Magenta
+            $first = $true
+            foreach ($f in $files) {
+                $sz  = Get-HumanSize -Bytes $f.Length
+                $pfx = if ($first) { "  │ [KEEP]   " } else { "  │ [DUPE]   "; $totalWaste += $f.Length; $totalDupes++ }
+                $col = if ($first) { "Green" } else { "Red" }
+                $pathDisplay = if ($f.FullName.Length -gt 57) { "..." + $f.FullName.Substring($f.FullName.Length-57) } else { $f.FullName }
+                Write-Host ("{0}{1,-57} {2,-12}" -f $pfx, $pathDisplay, $sz) -ForegroundColor $col
+                $first = $false
+            }
+            Write-Host "  └──────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+        }
+
+        Write-Host ""
+        Write-Host "   Duplicate files  : $totalDupes" -ForegroundColor White
+        Write-Host "   Wasted space     : $(Get-HumanSize -Bytes $totalWaste)" -ForegroundColor Yellow
+
+        if ($Mode -eq "DUPES") {
+            Write-Host "`n   ℹ️  Run Mode=DEL_DUPES to remove duplicates (keeps first copy)." -ForegroundColor Cyan
+            return
+        }
+
+        # ── Delete duplicates ────────────────────────────────────────
+        if (-not $SkipConfirm) {
+            Write-Host ""
+            Write-Host "   ⚠️  Delete $totalDupes duplicate files, freeing $(Get-HumanSize -Bytes $totalWaste)?" -ForegroundColor Red
+            Write-Host "   The FIRST copy of each group will be KEPT. Type YES to confirm: " -ForegroundColor Yellow -NoNewline
+            $answer = Read-Host
+            if ($answer -ne "YES") { Write-Host "`n   ❌ Cancelled. No files were deleted." -ForegroundColor Gray; return }
+        }
+
+        $delCount = 0; $delBytes = [long]0
+        foreach ($grp in $dupeList) {
+            $files = $grp.Value | Sort-Object FullName
+            $skip  = $true
+            foreach ($f in $files) {
+                if ($skip) { $skip = $false; continue }
+                try {
+                    $sz = $f.Length
+                    Remove-Item -Path $f.FullName -Force -ErrorAction Stop
+                    $delCount++; $delBytes += $sz
+                    Write-Host "   🗑️  Deleted: $($f.FullName)" -ForegroundColor Red
+                } catch { Write-Host "   ⚠️  Could not delete: $($f.FullName) — $_" -ForegroundColor Yellow }
+            }
+        }
+
+        Write-Host ""
+        Write-Host "──────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+        Write-Host "   ✅ DUPLICATES REMOVED" -ForegroundColor Green
+        Write-Host "   Files deleted : $delCount" -ForegroundColor White
+        Write-Host "   Space freed   : $(Get-HumanSize -Bytes $delBytes)" -ForegroundColor White
+        Write-Host "──────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+    }
 }
 
 # ============================================
 # MAIN EXECUTION — CLI MODE
-# If -Feature N is passed, run that feature
-# directly and exit (no interactive menu).
 # ============================================
 
 if ($Feature -gt 0) {
@@ -934,22 +849,21 @@ if ($Feature -gt 0) {
         10 { Show-SecurityCheck }
         11 { Show-PackageUpdates }
         12 { Show-HardwareInfo }
-
-        # File Manager
         13 { Get-FileList      -Directory $Path }
         14 { Copy-ItemPS       -Source $Source -Destination $Destination }
         15 { Move-ItemPS       -Source $Source -Destination $Destination }
         16 { Find-FileByName   -SearchPattern $SearchPattern -StartPath $Path }
         17 { Invoke-FileOrganizer -TargetDirectory $(if ($Path) { $Path } else { "." }) }
-
-        # Bootable Drive
-        20 { Get-USBDrives }
-        21 { Create-BootableDrive -Device $Device -IsoPath $IsoPath }
-
-        # Storage Format
-        22 { Get-StorageDevices }
-        23 { Format-Storage -Device $Device -Filesystem $Filesystem -Label $Label }
-
+        # Smart Cleaner sub-modes via Feature 18-21
+        18 { Invoke-SmartCleaner -Mode "SCAN" }
+        19 { Invoke-SmartCleaner -Mode "CLEAN" -SkipConfirm:$SkipConfirm }
+        20 { Invoke-SmartCleaner -Mode "DUPES" -ScanPath $(if ($Path) { $Path } else { $HOME }) }
+        21 { Invoke-SmartCleaner -Mode "DEL_DUPES" -ScanPath $(if ($Path) { $Path } else { $HOME }) -SkipConfirm:$SkipConfirm }
+        # Storage tools
+        22 { Get-USBDrives }
+        23 { Create-BootableDrive -Device $Device -IsoPath $IsoPath }
+        24 { Get-StorageDevices }
+        25 { Format-Storage -Device $Device -Filesystem $Filesystem -Label $Label }
         default { Write-Host "Invalid feature number: $Feature" -ForegroundColor Red }
     }
     exit 0
@@ -957,12 +871,11 @@ if ($Feature -gt 0) {
 
 # ============================================
 # MAIN EXECUTION — INTERACTIVE MENU LOOP
-# Shown when no -Feature argument is given.
 # ============================================
 
 do {
     Show-Menu
-    $choice = Read-Host "`n👉 Select an option (0-17)"
+    $choice = Read-Host "`n👉 Select an option (0-18)"
 
     switch ($choice) {
         "1"  { Show-SystemInfo }
@@ -1002,31 +915,51 @@ do {
 
         "16" {
             Write-Host "`n=== FILE SEARCH ===" -ForegroundColor Cyan
-            $pattern   = Read-Host "Enter filename pattern (e.g., 'config', '*.txt', 'backup')"
-            $startPath = Read-Host "Enter starting directory (press Enter for current directory)"
+            $pattern   = Read-Host "Enter filename pattern"
+            $startPath = Read-Host "Enter starting directory (Enter = current)"
             if (-not $startPath) { $startPath = "." }
             Find-FileByName -SearchPattern $pattern -StartPath $startPath
         }
 
-        # ── FEATURE 17: AUTOMATED FILE ORGANIZER ─────────────────
         "17" {
             Write-Host "`n=== AUTOMATED FILE ORGANIZER ===" -ForegroundColor Cyan
-            Write-Host "This will sort all files in a directory into:" -ForegroundColor White
-            Write-Host "   Images | Documents | Videos | Music | Archives" -ForegroundColor Yellow
-            Write-Host ""
-            $targetDir = Read-Host "Enter directory to organize (press Enter for current directory)"
+            $targetDir = Read-Host "Enter directory to organize (Enter = current)"
             if (-not $targetDir) { $targetDir = "." }
             Invoke-FileOrganizer -TargetDirectory $targetDir
         }
 
+        "18" {
+            Write-Host "`n=== SMART CLEANER ===" -ForegroundColor Cyan
+            Write-Host "  1) Scan (preview only)"    -ForegroundColor White
+            Write-Host "  2) Clean cache/temp/trash" -ForegroundColor White
+            Write-Host "  3) Find duplicates"        -ForegroundColor White
+            Write-Host "  4) Delete duplicates"      -ForegroundColor White
+            $sub = Read-Host "Choose action (1-4)"
+            switch ($sub) {
+                "1" { Invoke-SmartCleaner -Mode "SCAN" }
+                "2" { Invoke-SmartCleaner -Mode "CLEAN" }
+                "3" {
+                    $p = Read-Host "Directory to scan for duplicates (Enter = home)"
+                    if (-not $p) { $p = $HOME }
+                    Invoke-SmartCleaner -Mode "DUPES" -ScanPath $p
+                }
+                "4" {
+                    $p = Read-Host "Directory to scan for duplicates (Enter = home)"
+                    if (-not $p) { $p = $HOME }
+                    Invoke-SmartCleaner -Mode "DEL_DUPES" -ScanPath $p
+                }
+                default { Write-Host "Invalid sub-option" -ForegroundColor Red }
+            }
+        }
+
         "0" {
             Write-Host "`n👋 Exiting Kali SmartOps Manager..." -ForegroundColor Yellow
-            Write-Host "Thank you for using the tool!"          -ForegroundColor Green
+            Write-Host "Thank you for using the tool!" -ForegroundColor Green
             break
         }
 
         default {
-            Write-Host "`n❌ Invalid option! Please choose 0-17" -ForegroundColor Red
+            Write-Host "`n❌ Invalid option! Please choose 0-18" -ForegroundColor Red
             Start-Sleep -Seconds 2
         }
     }
