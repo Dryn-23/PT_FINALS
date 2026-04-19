@@ -1,0 +1,251 @@
+#!/usr/bin/env pwsh
+
+# Kali SmartOps Manager PRO - GTK4 Desktop UI
+# Requires: libadwaita, gtk4, gir1.2-adw-1, gir1.2-gtk-4.0
+
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class NativeMethods {
+    [DllImport("libadwaita-1.so.0")]
+    public static extern IntPtr adw_application_window_new(IntPtr application);
+    
+    [DllImport("libgtk-4.so.1")]
+    public static extern IntPtr gtk_application_window_new(IntPtr application);
+    
+    [DllImport("libgtk-4.so.1")]
+    public static extern void gtk_window_set_title(IntPtr window, string title);
+    
+    [DllImport("libgtk-4.so.1")]
+    public static extern void gtk_window_set_default_size(IntPtr window, int width, int height);
+}
+"@
+
+# Load GObject Introspection bindings
+Import-Module posh-gir -Force
+
+# Initialize GTK4 and libadwaita
+[Gtk.Init]::Main()
+$app = [Adw.Application]::new("com.kali.smartops", [Gio.ApplicationFlags]::FlagsNone)
+
+# Global variables
+$script:current_output = ""
+$script:current_feature = 0
+
+function New-KaliSmartOpsUI {
+    $app.ConnectActivate({
+        $window = [Adw.ApplicationWindow]::new($app)
+        $window.SetTitle("Kali SmartOps Manager PRO")
+        $window.SetDefaultSize(1200, 800)
+        
+        # Main layout
+        $main_box = [Gtk.Box]::new([Gtk.Orientation]::Vertical, 0)
+        $window.SetContent($main_box)
+        
+        # Header bar
+        $header = [Adw.HeaderBar]::new()
+        $title = [Gtk.Label]::new("Kali SmartOps Manager PRO")
+        $title.SetHalign([Gtk.Align]::Start)
+        $header.SetTitleWidget($title)
+        
+        $main_box.Append($header)
+        
+        # Main content - Split view
+        $split = [Gtk.Paned]::new([Gtk.Orientation]::Horizontal, true)
+        $split.SetPosition(250)
+        $main_box.Append($split)
+        
+        # Left sidebar - Menu
+        $sidebar = New-SidebarMenu
+        $split.SetStartChild($sidebar)
+        
+        # Right content area
+        $content_stack = [Gtk.Stack]::new()
+        $content_stack.SetTransitionType([Gtk.StackTransitionType]::SlideLeftRight)
+        $split.SetEndChild($content_stack)
+        
+        # Create all pages
+        $pages = @{
+            "welcome" = New-WelcomePage
+            "sysinfo" = New-SystemInfoPage
+            "processes" = New-ProcessMonitorPage
+            "realtime" = New-RealtimeMonitorPage
+            "network" = New-NetworkInfoPage
+            "bandwidth" = New-BandwidthPage
+            "ports" = New-PortScanPage
+            "services" = New-ServiceManagerPage
+            "disk" = New-DiskAnalysisPage
+            "cleanup" = New-CleanupToolsPage
+            "security" = New-SecurityCheckPage
+            "packages" = New-PackageUpdatesPage
+            "hardware" = New-HardwareInfoPage
+            "filemgr" = New-FileManagerPage
+            "bootable" = New-BootableDrivePage
+            "format" = New-StorageFormatPage
+            "search" = New-FileSearchPage
+            "output" = New-OutputPage
+        }
+        
+        foreach ($page in $pages.GetEnumerator()) {
+            $content_stack.AddNamed($page.Value, $page.Key)
+        }
+        
+        $window.Show()
+    })
+    
+    $app.Run([string[]]$args)
+}
+
+function New-SidebarMenu {
+    $sidebar = [Gtk.Box]::new([Gtk.Orientation]::Vertical, 5)
+    $sidebar.SetMarginStart(10)
+    $sidebar.SetMarginEnd(10)
+    $sidebar.SetMarginTop(10)
+    $sidebar.SetMarginBottom(10)
+    
+    # Menu buttons
+    $menu_items = @(
+        @{name="🏠 Welcome"; id="welcome"},
+        @{name="📊 System Info"; id="sysinfo"},
+        @{name="🔍 Processes"; id="processes"},
+        @{name="📈 Realtime"; id="realtime"},
+        @{name="🌐 Network"; id="network"},
+        @{name="📡 Bandwidth"; id="bandwidth"},
+        @{name="🔌 Ports"; id="ports"},
+        @{name="🔄 Services"; id="services"},
+        @{name="💾 Disk Usage"; id="disk"},
+        @{name="🧹 Cleanup"; id="cleanup"},
+        @{name="🔐 Security"; id="security"},
+        @{name="📦 Packages"; id="packages"},
+        @{name="💻 Hardware"; id="hardware"},
+        @{name="📁 File Manager"; id="filemgr"},
+        @{name="💿 Bootable USB"; id="bootable"},
+        @{name="💾 Format Drive"; id="format"},
+        @{name="🔍 File Search"; id="search"}
+    )
+    
+    foreach ($item in $menu_items) {
+        $btn = [Gtk.Button]::new()
+        $label = [Gtk.Label]::new($item.name)
+        $label.SetHalign([Gtk.Align]::Start)
+        $btn.SetChild($label)
+        $btn.SetHalign([Gtk.Align]::Fill)
+        $btn.SetValign([Gtk.Align]::Center)
+        $btn.AddCssClass("flat")
+        $btn.ConnectClicked({
+            param($self, $data)
+            $content_stack.SetVisibleChildNamed($data.id)
+            $script:current_feature = switch ($data.id) {
+                "sysinfo" {1}
+                "processes" {2}
+                "realtime" {3}
+                "network" {4}
+                "bandwidth" {5}
+                "ports" {6}
+                "services" {7}
+                "disk" {8}
+                "cleanup" {9}
+                "security" {10}
+                "packages" {11}
+                "hardware" {12}
+                default {0}
+            }
+        }, $item)
+        
+        $sidebar.Append($btn)
+    }
+    
+    return $sidebar
+}
+
+function New-WelcomePage {
+    $page = [Gtk.Box]::new([Gtk.Orientation]::Vertical, 10)
+    $page.SetMarginStart(20)
+    $page.SetMarginEnd(20)
+    $page.SetMarginTop(20)
+    $page.SetMarginBottom(20)
+    
+    $welcome_label = [Gtk.Label]::new("Welcome to Kali SmartOps Manager PRO")
+    $welcome_label.AddCssClass("title")
+    
+    $desc = [Gtk.Label]::new("Comprehensive system administration tool for Kali Linux")
+    $desc.AddCssClass("dimension")
+    
+    $features = [Gtk.Label]::new(@"
+✅ System Monitoring & Analysis
+✅ Real-time Performance Metrics  
+✅ Network & Security Diagnostics
+✅ File Management & Search
+✅ Bootable USB Creation
+✅ Storage Formatting
+✅ Package Management
+✅ Hardware Diagnostics
+"@)
+    $features.SetMarginTop(20)
+    
+    $page.Append($welcome_label)
+    $page.Append($desc)
+    $page.Append($features)
+    
+    return $page
+}
+
+function New-OutputPage {
+    $page = [Gtk.ScrolledWindow]::new()
+    $text_view = [Gtk.TextView]::new()
+    $text_view.SetEditable($false)
+    $text_view.SetWrapMode([Gtk.WrapMode]::WordChar)
+    $buffer = $text_view.GetBuffer()
+    $script:output_buffer = $buffer
+    $page.SetChild($text_view)
+    return $page
+}
+
+function Update-Output {
+    param([string]$text)
+    $script:current_output += "`n$text"
+    if ($script:output_buffer) {
+        $end_iter = $script:output_buffer.GetEndIter()
+        $script:output_buffer.Insert($end_iter, $text + "`n")
+        $text_view = [Gtk.TextView]::GetInstance($script:output_buffer)
+        $text_view.ScrollToIter($end_iter, 0.0, $false, 0.0, 0.0)
+    }
+}
+
+function New-SystemInfoPage {
+    $page = [Gtk.Box]::new([Gtk.Orientation]::Vertical, 5)
+    $run_btn = [Gtk.Button]::new_with_label("🔄 Refresh System Info")
+    $run_btn.ConnectClicked({
+        Start-Job -ScriptBlock {
+            param($feature)
+            & ./KaliSmartOpsCLI.ps1 -Feature $feature
+        } -ArgumentList 1 | Wait-Job | Receive-Job
+        Update-Output (Show-SystemInfo)
+    })
+    $page.Append($run_btn)
+    return $page
+}
+
+# Simplified function implementations for UI
+function Show-SystemInfo {
+    $output = & lsb_release -d 2>/dev/null | cut -f2
+    $output += "`nKernel: $(uname -a)"
+    $output += "`nUptime: $(uptime -p)"
+    $output += "`nMemory: $(free -h | grep Mem)"
+    return $output
+}
+
+# Add similar simplified functions for other features...
+
+# Main execution
+try {
+    New-KaliSmartOpsUI
+} catch {
+    Write-Host "❌ GTK4/libadwaita not available. Install dependencies:" -ForegroundColor Red
+    Write-Host "   sudo apt update" -ForegroundColor Yellow
+    Write-Host "   sudo apt install libadwaita-1 gir1.2-adw-1 gir1.2-gtk-4.0 libgtk-4-dev" -ForegroundColor Yellow
+    Write-Host "`nFalling back to CLI mode..." -ForegroundColor Yellow
+    & ./KaliSmartOpsCLI.ps1 $args
+}

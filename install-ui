@@ -1,0 +1,28 @@
+#!/bin/bash
+# Kali SmartOps Manager UI Installer
+
+echo "🔧 Installing Kali SmartOps Manager PRO UI..."
+
+# Update system
+sudo apt update
+
+# Install GTK4 + libadwaita dependencies
+sudo apt install -y \
+    libadwaita-1 \
+    gir1.2-adw-1 \
+    gir1.2-gtk-4.0 \
+    libgtk-4-1 \
+    libgtk-4-dev \
+    powershell \
+    gnome-terminal
+
+# Install PowerShell GObject Introspection module (if available)
+# pwsh -c "Install-Module posh-gir -Force"
+
+echo "✅ Installation complete!"
+echo ""
+echo "🚀 To run:"
+echo "   ./KaliSmartOpsUI.ps1"
+echo ""
+echo "📱 Or create desktop entry:"
+echo "   ./create-desktop-entry.sh"
